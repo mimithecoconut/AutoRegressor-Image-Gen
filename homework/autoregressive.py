@@ -55,10 +55,32 @@ class AutoregressiveModel(torch.nn.Module, Autoregressive):
 
     def __init__(self, d_latent: int = 128, n_tokens: int = 2**10):
         super().__init__()
-        raise NotImplementedError()
+        self.n_tokens = n_tokens
+        self.embedding = torch.nn.Embedding(n_tokens, d_latent)
+        decoder_layer = torch.nn.TransformerEncoderLayer(d_latent, nhead=2, dropout=0.1)
+        self.decoder = torch.nn.TransformerEncoder(decoder_layer, num_layers=1)
+        self.output_layer = torch.nn.Linear(d_latent, n_tokens)
+
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        raise NotImplementedError()
+        B, h, w = x.shape
+        x_seq = x.view(B, -1) # (B, L = H * W)
+
+        x = self.embedding(x_seq) # (B, L, d_latent)
+        x = x.transpose(1, 2) # transpose for using ConstPad1d
+        shift = torch.nn.ConstantPad1d((1,0),0) # Pad value 0 to the left
+        x = shift(x) # (B, L, d+1)
+        x = x[:,:,:-1] # Remove last token to maintain length
+        x = x.transpose(1, 2)
+
+        x = x.transpose(0, 1) # Since transformer takes in shape (L, B, d)
+        causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(h*w).to(x.device)
+        x_encoded = self.decoder(x, mask=causal_mask)
+        x_encoded = x_encoded.transpose(0, 1)
+        logits = self.output_layer(x_encoded) # (B, L, n_tokens)
+
+        return logits.view(B, h, w, self.n_tokens), {}
+        
 
     def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:  # noqa
         raise NotImplementedError()
