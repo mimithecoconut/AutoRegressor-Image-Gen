@@ -83,4 +83,15 @@ class AutoregressiveModel(torch.nn.Module, Autoregressive):
         
 
     def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:  # noqa
-        raise NotImplementedError()
+        L = h * w
+        with torch.no_grad():
+          x = torch.zeros(B, L, dtype=torch.long, device=device)
+
+          for i in range(L):
+              logits, _ = self.forward(x.view(B, h, w))  #(B, h, w, n_tokens)
+              logits_flat = logits.view(B, L, self.n_tokens)
+              probs = torch.nn.functional.softmax(logits_flat[:, i], dim=-1)
+              next_token = torch.multinomial(probs, num_samples=1).squeeze(-1)
+              x[:, i] = next_token
+
+        return x.view(B, h, w)
